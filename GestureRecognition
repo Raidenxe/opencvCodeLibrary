@@ -1,0 +1,430 @@
+#include <stdio.h>
+#include <tchar.h>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <list>
+#include <map>
+#include <stack>
+#include <opencv2/core/core.hpp>
+#include <opencv2/features2d/features2d.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/imgproc/types_c.h>
+#include <Windows.h>
+#include<time.h>
+using namespace std;
+using namespace cv;
+
+
+void ShowHelpText()
+{
+	cout << "\n手势0";
+	cout << "\n手势1";
+	cout << "\n手势2";
+	cout << "\n手势3";
+	cout << "\n手势4";
+	cout << "\n手势5";
+	
+
+}
+
+
+void Seed_Filling(const cv::Mat& binImg, cv::Mat& labelImg, int& labelNum, int(&ymin)[20], int(&ymax)[20], int(&xmin)[20], int(&xmax)[20])   
+{
+	if (binImg.empty() ||
+		binImg.type() != CV_8UC1)
+	{
+		return;
+	}
+
+	labelImg.release();
+	binImg.convertTo(labelImg, CV_32SC1);
+	int label = 0;
+	int rows = binImg.rows;
+	int cols = binImg.cols;
+	for (int i = 1; i < rows - 1; i++)
+	{
+		int* data = labelImg.ptr<int>(i);
+		for (int j = 1; j < cols - 1; j++)
+		{
+
+			if (data[j] == 0)
+			{
+				std::stack<std::pair<int, int>> neighborPixels;
+															  
+				neighborPixels.push(std::pair<int, int>(j, i));
+				ymin[label] = i;
+				ymax[label] = i;
+				xmin[label] = j;
+				xmax[label] = j;
+				while (!neighborPixels.empty())
+				{
+					std::pair<int, int> curPixel = neighborPixels.top(); 
+					int curX = curPixel.first;
+					int curY = curPixel.second;
+					labelImg.at<int>(curY, curX) = 255;
+					neighborPixels.pop();	
+
+					if ((curX > 0) && (curY > 0) && (curX < (cols - 1)) && (curY < (rows - 1)))
+					{
+						if (labelImg.at<int>(curY - 1, curX) == 0)                      
+						{
+							neighborPixels.push(std::pair<int, int>(curX, curY - 1));
+							//ymin[label] = curY - 1;
+						}
+
+						if (labelImg.at<int>(curY + 1, curX) == 0)                     //下
+						{
+							neighborPixels.push(std::pair<int, int>(curX, curY + 1));
+							if ((curY + 1) > ymax[label])
+								ymax[label] = curY + 1;
+						}
+
+						if (labelImg.at<int>(curY, curX - 1) == 0)                      
+						{
+							neighborPixels.push(std::pair<int, int>(curX - 1, curY));
+							if ((curX - 1) < xmin[label])
+								xmin[label] = curX - 1;
+						}
+
+						if (labelImg.at<int>(curY, curX + 1) == 0)                      
+						{
+							neighborPixels.push(std::pair<int, int>(curX + 1, curY));
+							if ((curX + 1) > xmax[label])
+								xmax[label] = curX + 1;
+						}
+
+						if (labelImg.at<int>(curY - 1, curX - 1) == 0)                  
+						{
+							neighborPixels.push(std::pair<int, int>(curX - 1, curY - 1));
+							//ymin[label] = curY - 1;
+							if ((curX - 1) < xmin[label])
+								xmin[label] = curX - 1;
+						}
+						if (labelImg.at<int>(curY + 1, curX + 1) == 0)                  
+						{
+							neighborPixels.push(std::pair<int, int>(curX + 1, curY + 1));
+							if ((curY + 1) > ymax[label])
+								ymax[label] = curY + 1;
+							if ((curX + 1) > xmax[label])
+								xmax[label] = curX + 1;
+						}
+
+						if (labelImg.at<int>(curY + 1, curX - 1) == 0)                  
+						{
+							neighborPixels.push(std::pair<int, int>(curX - 1, curY + 1));
+							if ((curY + 1) > ymax[label])
+								ymax[label] = curY + 1;
+							if ((curX - 1) < xmin[label])
+								xmin[label] = curX - 1;
+						}
+
+						if (labelImg.at<int>(curY - 1, curX + 1) == 0)                  
+						{
+							neighborPixels.push(std::pair<int, int>(curX + 1, curY - 1));
+							//ymin[label] = curY - 1;
+							if ((curX + 1) > xmax[label])
+								xmax[label] = curX + 1;
+						}
+					}
+				}
+				++label; 
+			}
+		}
+	}
+	labelNum = label;
+}
+
+void mirrorY(Mat src, Mat& dst)
+{
+	int row = src.rows;
+	int col = src.cols;
+	dst = src.clone();
+	for (int i = 0; i < col; i++) {
+		src.col(col - 1 - i).copyTo(dst.col(i));
+	}
+}
+
+class WatershedSegmenter {
+private:
+	cv::Mat markers;
+public:
+	void setMarkers(const cv::Mat& markerImage) {
+
+		markerImage.convertTo(markers, CV_32S);
+	}
+
+	cv::Mat process(const cv::Mat& image) {
+		cv::watershed(image, markers);
+		return markers;
+	}
+
+	cv::Mat getSegmentation() {
+		cv::Mat tmp;
+		markers.convertTo(tmp, CV_8U);
+		return tmp;
+	}
+
+	cv::Mat getWatersheds() {
+		cv::Mat tmp;
+		markers.convertTo(tmp, CV_8U, 255, 255);
+		return tmp;
+	}
+};
+
+int main()
+{
+	ShowHelpText();
+
+	// 设置视频读入，括号里面的数字是摄像头的选择，一般自带的是0
+	cv::VideoCapture cap(0);
+
+	if (!cap.isOpened())
+	{
+		return -1;
+	}
+
+	clock_t start, finish;
+	double totaltime;
+
+	string str1, str2, str3;
+	Mat frame;
+	Mat binImage, tmp, tmp1;
+	Mat Y, Cr, Cb, H;
+	vector<Mat> channels, channels1;
+
+	//模板图片
+	Mat mu[5];
+	mu[0] = imread("../m1.png", CV_8UC1); // 手势0
+	mu[1] = imread("../m2.png", CV_8UC1); // 手势1
+	mu[2] = imread("../m3.png", CV_8UC1); // 手势2
+	mu[3] = imread("../m4.png", CV_8UC1); // 手势3
+	mu[4] = imread("../m5.png", CV_8UC1); // 手势4
+    mu[5] = imread("../m6.png", CV_8UC1); // 手势5
+    
+	float simi[5];	
+	float flag;		
+	int flagx = 0, flagx1 = 0, flagx2 = 0;		
+	//int curpointx = 0, curpointy = 0, prepointx = 367, prepointy = 80;	// 鼠标初始位置
+	int xg_num = 0;
+
+	bool stop = false;
+	while (!stop)
+	{
+		cap >> frame;
+		mirrorY(frame, frame);
+		cvtColor(frame, binImage, CV_BGR2GRAY);
+		frame.copyTo(tmp);
+		cvtColor(tmp, tmp, CV_BGR2YCrCb);
+		frame.copyTo(tmp1);
+		cvtColor(tmp1, tmp1, CV_BGR2HSV);
+		split(tmp, channels);
+		split(tmp1, channels1);
+		Cr = channels.at(1);	
+		Cb = channels.at(2);	
+		H = channels1.at(0);	
+
+		for (int j = 1; j < Cr.rows - 1; j++)	
+		{
+			uchar* currentCr = Cr.ptr< uchar>(j);
+			uchar* currentCb = Cb.ptr< uchar>(j);
+			uchar* currentH = H.ptr< uchar>(j);
+			uchar* current = binImage.ptr< uchar>(j);
+
+			for (int i = 1; i < Cb.cols - 1; i++)
+			{
+				if ((currentCr[i] >= 135) && (currentCr[i] <= 170) && (currentCb[i] >= 94) && (currentCb[i] <= 125) && (currentH[i] >= 1) && (currentH[i] <= 23))
+					current[i] = 255;
+				else
+					current[i] = 0;
+			}
+		}
+
+		erode(binImage, binImage, Mat());
+		dilate(binImage, binImage, Mat());
+
+		cv::Mat fg;
+		cv::erode(binImage, fg, cv::Mat(), cv::Point(-1, -1), 6);	
+
+		cv::Mat bg;
+		cv::dilate(binImage, bg, cv::Mat(), cv::Point(-1, -1), 6);	
+		cv::threshold(bg, bg, 1, 128, cv::THRESH_BINARY_INV);	
+
+		cv::Mat markers(binImage.size(), CV_8U, cv::Scalar(0));
+		markers = fg + bg;
+
+
+		WatershedSegmenter segmenter;
+		segmenter.setMarkers(markers);
+		segmenter.process(frame);
+
+		Mat waterShed;
+		waterShed = segmenter.getSegmentation();
+
+		
+		Mat labelImg;
+		int label, ymin[20], ymax[20], xmin[20], xmax[20];
+		Seed_Filling(waterShed, labelImg, label, ymin, ymax, xmin, xmax);
+
+		float fuseratio[20];
+		for (int k = 0; k < label; k++)
+		{
+			fuseratio[k] = 1;
+			if (((xmax[k] - xmin[k] + 1) > 50) && ((xmax[k] - xmin[k] + 1) < 300) && ((ymax[k] - ymin[k] + 1) > 150) && ((ymax[k] - ymin[k] + 1) < 450))
+			{
+				int fusepoint = 0;
+				for (int j = ymin[k]; j < ymax[k]; j++)
+				{
+					uchar* current = waterShed.ptr< uchar>(j);
+					for (int i = xmin[k]; i < xmax[k]; i++)
+					{
+						if (current[i] == 255)
+							fusepoint++;
+					}
+				}
+				fuseratio[k] = float(fusepoint) / ((xmax[k] - xmin[k] + 1) * (ymax[k] - ymin[k] + 1));
+			}
+		}
+
+		Size dsize = Size(108, 128);
+
+		for (int i = 0; i < label; i++)
+		{
+			if ((fuseratio[i] < 0.58))
+			{
+			
+				Mat rROI = Mat(dsize, CV_8UC1);
+				resize(waterShed(Rect(xmin[i], ymin[i], xmax[i] - xmin[i], ymax[i] - ymin[i])), rROI, dsize);
+				imshow("手势区域", rROI);
+
+				
+				Mat result;
+				for (int mp = 0; mp < 5; mp++)
+				{
+					matchTemplate(rROI, mu[mp], result, CV_TM_SQDIFF_NORMED);
+					simi[mp] = result.ptr<float>(0)[0];
+				}
+
+				flagx2 = flagx1;
+				flagx1 = flagx;
+				flagx = 0;
+				flag = simi[0];
+				for (int j = 1; j < 5; j++)
+				{
+					if (simi[j] < flag)
+					{
+						flagx = j;
+						flag = simi[j];
+					}
+				}
+
+				cv::Point end = cv::Point(xmin[i], ymin[i] - 15);  
+				str1 = "(" + to_string(xmin[i]) + "," + to_string(ymin[i]) + ") " + " (" + to_string(xmax[i]) + "," + to_string(ymax[i]) + ")";
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.5, cv::Scalar(255, 0, 0), 2);
+				putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.5, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(xmin[i] - 80, ymin[i] + 20);  
+				str1 = "Hand" + to_string(flagx + 1);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(20, 20);   
+				str1 = "Skin area ratio: " + to_string(fuseratio[i]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(20, 40);   
+				str1 = "Height: " + to_string(ymax[i] - ymin[i]) + "  Width: " + to_string(xmax[i] - xmin[i]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(20, 60);   
+				str1 = "Suitability_1: " + to_string(simi[0]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(20, 80);   
+				str1 = "Suitability_2: " + to_string(simi[1]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(20, 100);   
+				str1 = "Suitability_3: " + to_string(simi[2]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+
+				end = cv::Point(20, 120);   
+				str1 = "Suitability_4: " + to_string(simi[3]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				end = cv::Point(20, 140);   
+				str1 = "Suitability_5: " + to_string(simi[4]);
+				putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				//putText(frame, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+
+				if (flagx == 0)
+				{
+					curpointx = xmin[i];
+					curpointy = ymin[i];
+
+					int dx = curpointx - prepointx;
+					int dy = curpointy - prepointy;
+
+					prepointx = curpointx;
+					prepointy = curpointy;
+
+					end = cv::Point(20, 400);   
+					str1 = "shoushi 0";
+					putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				}
+
+				if (flagx == 1 && flagx1 != 1 && flagx2 != 1)
+				{
+
+					end = cv::Point(20, 440);   
+					str1 = "shoushi 1";
+					putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				}
+				if (flagx == 2 && flagx1 != 2 && flagx2 != 2)
+				{
+					end = cv::Point(20, 440);   
+					str1 = "shoushi 2";
+					putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				}
+				if (flagx == 3)
+				{
+					end = cv::Point(20, 440);   
+					str1 = "shoushi 3";
+					putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				}
+				if (flagx == 4)
+				{
+					end = cv::Point(20, 440);   
+					str1 = "shoushi 4";
+					putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				}
+                if (flagx == 5)
+				{
+					end = cv::Point(20, 440);   
+					str1 = "shoushi 5";
+					putText(waterShed, str1, end, cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+				}
+				rectangle(waterShed, Point(xmin[i], ymin[i]), Point(xmax[i], ymax[i]), Scalar::all(255), 3, 8, 0);	
+				rectangle(frame, Point(xmin[i], ymin[i]), Point(xmax[i], ymax[i]), cv::Scalar(0, 255, 0), 3, 8, 0);	
+			}
+		imshow("信息显示", waterShed);
+		}
+		imshow("功能显示", frame);
+
+		
+		if (waitKey(1) >= 0)
+			stop = true;
+
+	}
+
+	return 0;
+}
