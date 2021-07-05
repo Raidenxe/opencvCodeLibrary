@@ -89,4 +89,5 @@ void detectAndDisplay(cv::Mat frame)
     }
     //-- Show what you got
     cv::imshow("Capture - Face detection", frame);
+    
 }
