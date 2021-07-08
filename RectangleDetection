@@ -1,0 +1,49 @@
+#include <opencv2/opencv.hpp>
+#include <iostream>
+#include <opencv2/highgui/highgui_c.h> 
+#include <vector>
+
+int main()
+{
+    //开起摄像头
+    cv::VideoCapture capture;
+    capture.open(0);
+    cv::Mat edges; //定义转化的灰度图
+    if (!capture.isOpened())
+       return -1;
+    cv::namedWindow("test", CV_WINDOW_NORMAL);
+    while (1)
+    {
+        cv::Mat frame;
+        capture >> frame;
+        if (!frame.data)
+            return -1;
+        cvtColor(frame, edges, CV_BGR2GRAY);
+        //高斯滤波
+        GaussianBlur(edges, edges, cv::Size(5, 5), 2, 2);
+        std::vector<std::vector<cv::Point>> squares;
+        for (int i = 0; i < squares.size(); i++)
+        {
+            //draw contour绘制等高线
+            cv::drawContours(frame, squares, i, cv::Scalar(255, 0, 0), 1, 8, std::vector<cv::Vec4i>(), 0, cv::Point());
+            // draw bounding rect绘制边界矩形
+            cv::Rect rect = boundingRect(cv::Mat(squares[i]));
+            cv::rectangle(frame, rect.tl(), rect.br(), cv::Scalar(0, 255, 0), 2, 8, 0);
+
+            // draw rotated rect绘制旋转矩形
+            cv::RotatedRect minRect = minAreaRect(cv::Mat(squares[i]));
+            cv::Point2f rect_points[4];
+            minRect.points(rect_points);
+            for (int j = 0; j < 4; j++)
+            {
+                cv::line(frame, rect_points[j], rect_points[(j + 1) % 4], cv::Scalar(0, 0, 255), 1, 8); // blue
+            }
+        }
+        imshow("test", frame);
+        if (cv::waitKey(30) == 'q')
+        {
+            break;
+        }
+    }
+    return 0;
+}
